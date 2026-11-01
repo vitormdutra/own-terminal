@@ -338,7 +338,10 @@ impl eframe::App for App {
 
 fn main() -> eframe::Result {
     let opts = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([900.0, 560.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([900.0, 560.0])
+            // Without this eframe puts egui's own logo in the Dock / Cmd+Tab, over the .app's icon.
+            .with_icon(egui::IconData { rgba: include_bytes!("../assets/icon-256.rgba").to_vec(), width: 256, height: 256 }),
         ..Default::default()
     };
     eframe::run_native("own-terminal", opts, Box::new(|cc| {

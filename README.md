@@ -1,5 +1,7 @@
 # own-terminal
 
+[![CI](https://github.com/vitormdutra/own-terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/vitormdutra/own-terminal/actions/workflows/ci.yml)
+
 A clean, fast, lightweight terminal emulator written in Rust. No Electron, no web view, no
 telemetry, no settings maze: one small native binary with tabs, splits, search and a single plain-text
 config file.
@@ -30,6 +32,22 @@ Terminal emulation comes from [`alacritty_terminal`](https://crates.io/crates/al
   scrolls by (see [Performance](#performance)).
 
 ## Install
+
+### Download a build
+
+Grab the latest from the [Releases page](https://github.com/vitormdutra/own-terminal/releases):
+
+- **macOS (Apple Silicon):** `OwnTerminal-macos-apple-silicon.zip`. Unzip it, drag `OwnTerminal.app`
+  to `/Applications`, and open it. The app is not notarized by Apple, so the first launch needs
+  right-click → **Open** → **Open**. If macOS says the app is "damaged", it is only the download
+  quarantine flag; clear it with
+  `xattr -dr com.apple.quarantine /Applications/OwnTerminal.app`.
+- **Linux (x86_64):** `own-terminal-linux-x86_64.tar.gz` contains the binary; put it somewhere on
+  your `PATH`. (Not yet tested on a real desktop, see [Linux and Windows](#linux-and-windows).)
+
+Intel Macs and Windows have no prebuilt binary yet; build from source (below).
+
+### Build from source
 
 You need a [Rust toolchain](https://rustup.rs) (stable).
 
@@ -170,7 +188,7 @@ GPU time is not included in that number.
 - Bold needs `font_bold_path`; otherwise it is only a brighter color.
 - No ligatures, no image protocols, no IME-specific handling beyond what `egui` provides.
 - Panes cannot be swapped or dragged to another split.
-- Not code-signed or notarized on macOS.
+- The macOS app is only ad-hoc signed, not notarized, so Gatekeeper asks for confirmation on first launch.
 
 ## Development
 
@@ -186,7 +204,19 @@ cargo test --release     # unit tests; one of them starts a real pty and takes ~
 cargo clippy             # if you have it installed
 ```
 
-The foreground-process test spawns `/bin/sh` on a pty, so it needs a Unix system.
+The foreground-process test spawns `/bin/sh` on a pty, so it needs a Unix system. Every push and pull
+request builds and tests on macOS and Linux through GitHub Actions (`.github/workflows/ci.yml`).
+
+### Publishing a release
+
+Bump `version` in `Cargo.toml`, commit, then push a tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/release.yml` builds the macOS app and the Linux binary and attaches them to a new
+GitHub release with generated notes.
 
 ## Acknowledgements
 

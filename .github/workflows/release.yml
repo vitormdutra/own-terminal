@@ -1,0 +1,59 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the binaries and publish them as a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the app
+        run: ./bundle.sh
+      - name: Zip it (ditto keeps the bundle intact)
+        run: ditto -c -k --keepParent dist/OwnTerminal.app OwnTerminal-macos-apple-silicon.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: OwnTerminal-macos-apple-silicon.zip
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          mkdir own-terminal-linux-x86_64
+          cp target/release/own-terminal LICENSE README.md own-terminal-linux-x86_64/
+          tar -czf own-terminal-linux-x86_64.tar.gz own-terminal-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: own-terminal-linux-x86_64.tar.gz
+
+  publish:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes \
+            OwnTerminal-macos-apple-silicon.zip own-terminal-linux-x86_64.tar.gz

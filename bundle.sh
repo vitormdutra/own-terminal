@@ -21,4 +21,6 @@ cat > "$app/Contents/Info.plist" <<'EOF'
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 EOF
+# Ad-hoc signature (no developer account): seals the bundle so Apple Silicon does not call it "damaged".
+codesign --force --deep --sign - "$app"
 echo "ok: $app"

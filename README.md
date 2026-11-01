@@ -212,7 +212,7 @@ request builds and tests on macOS and Linux through GitHub Actions (`.github/wor
 Bump `version` in `Cargo.toml`, commit, then push a tag:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v1.5.0 && git push origin v1.5.0
 ```
 
 `.github/workflows/release.yml` builds the macOS app and the Linux binary and attaches them to a new

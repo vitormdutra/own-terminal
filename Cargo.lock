@@ -2363,7 +2363,7 @@ dependencies = [
 
 [[package]]
 name = "own-terminal"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "alacritty_terminal",
  "eframe",

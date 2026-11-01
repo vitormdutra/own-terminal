@@ -71,14 +71,22 @@ Opcional. Crie `~/.config/own-terminal/config` (reinicie o app para aplicar):
 # comentários começam com #
 font_size = 15
 font_path = /Users/voce/Library/Fonts/JetBrainsMono-Regular.ttf
-fg = #d8d8d8
+font_bold_path = /Users/voce/Library/Fonts/JetBrainsMono-Bold.ttf  # opcional
+theme = dracula       # default | dracula | solarized-dark | gruvbox-dark | nord
+fg = #d8d8d8          # sobrescreve o tema
 bg = #181818
+color1 = #ff5555      # color0 a color15: as 16 cores ANSI (0-7 normais, 8-15 brilhantes)
 cursor = block        # block | bar | underline
 cursor_blink = false  # true para piscar
 notify_after = 10     # avisa quando um comando com mais de N segundos termina (0 desliga)
 ```
 
-Sem arquivo, valem os padrões acima. `Cmd+,` recarrega o arquivo sem reiniciar (cores, fonte e tamanho valem na hora; a forma do cursor só vale para abas novas). Programas como o vim podem trocar a forma do cursor sozinhos. O título da janela segue o título do programa em foco. `font_path` aponta para um `.ttf`/`.otf` monoespaçado.
+Sem arquivo, valem os padrões acima. `theme` escolhe um conjunto pronto de cores; `fg`, `bg` e
+`color0`…`color15` sobrescrevem partes dele, em qualquer ordem no arquivo.
+
+**Negrito:** a fonte padrão não tem negrito, então o texto em negrito aparece com cor mais clara.
+Para negrito de verdade, aponte `font_bold_path` para a versão em negrito da *mesma* família de
+`font_path` (as larguras dos caracteres precisam ser iguais, senão a grade desalinha). `Cmd+,` recarrega o arquivo sem reiniciar (cores, fonte e tamanho valem na hora; a forma do cursor só vale para abas novas). Programas como o vim podem trocar a forma do cursor sozinhos. O título da janela segue o título do programa em foco. `font_path` aponta para um `.ttf`/`.otf` monoespaçado.
 
 ## Aviso de comando longo
 
@@ -104,7 +112,7 @@ Ajustes do Sistema → Notificações.
 - Busca: ignora maiúsculas, procura texto simples (sem regex) e não atualiza sozinha com saída nova; digite de novo para refazer.
 - Aviso de comando longo: só macOS e Linux; assume que o terminal está ocioso 2s depois de aberto.
 - Sem reordenar abas.
-- Itálico, sublinhado e tachado são desenhados; negrito vira cor mais clara (não há fonte em negrito). Só `fg`, `bg`, fonte e tamanho são configuráveis (paleta ANSI fixa no código).
+- Itálico, sublinhado e tachado são desenhados. Negrito de verdade exige `font_bold_path`; sem ele vira cor mais clara.
 - No Linux/Windows compila em teoria, mas só foi testado no macOS.
 
 ## Atualizar

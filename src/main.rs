@@ -20,57 +20,104 @@ use eframe::egui::{self, Color32, FontId, Key, Pos2, Rect, Vec2};
 const TAB_H: f32 = 26.0;
 
 // User settings from ~/.config/own-terminal/config: `key = value` lines, `#` comments.
-// Keys: font_size, font_path (.ttf/.otf), fg, bg (#rrggbb), cursor (block|bar|underline), cursor_blink (true|false),
+// Keys: font_size, font_path / font_bold_path (.ttf/.otf), theme, fg, bg and color0..color15 (#rrggbb),
+// cursor (block|bar|underline), cursor_blink (true|false),
 // notify_after (seconds a command must run before a notification when the window is in background; 0 = off).
 struct Settings {
     font_size: f32,
     font_path: Option<String>,
+    font_bold_path: Option<String>,
     fg: Color32,
     bg: Color32,
     bar: Color32,
+    ansi: [Color32; 16],
     cursor: CursorStyle,
     notify_after: u64,
 }
 
-fn load() -> Settings {
-    {
-        let mut s = Settings {
-            font_size: 14.0,
-            font_path: None,
-            fg: Color32::from_rgb(0xd8, 0xd8, 0xd8),
-            bg: Color32::from_rgb(0x18, 0x18, 0x18),
-            bar: Color32::BLACK,
-            cursor: CursorStyle { shape: CursorShape::Block, blinking: false },
-            notify_after: 10,
-        };
-        let path = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config/own-terminal/config"));
-        let text = path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
-        let hex = |v: &str| {
-            let n = u32::from_str_radix(v.trim_start_matches('#'), 16).ok()?;
-            Some(Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8))
-        };
-        for line in text.lines().filter(|l| !l.trim_start().starts_with('#')) {
-            let Some((k, v)) = line.split_once('=') else { continue };
-            let v = v.trim();
-            match k.trim() {
-                "font_size" => s.font_size = v.parse().unwrap_or(s.font_size),
-                "font_path" => s.font_path = Some(v.to_string()),
-                "fg" => s.fg = hex(v).unwrap_or(s.fg),
-                "bg" => s.bg = hex(v).unwrap_or(s.bg),
-                "cursor" => match v {
-                    "block" => s.cursor.shape = CursorShape::Block,
-                    "bar" => s.cursor.shape = CursorShape::Beam,
-                    "underline" => s.cursor.shape = CursorShape::Underline,
-                    _ => {}
-                },
-                "cursor_blink" => s.cursor.blinking = v == "true",
-                "notify_after" => s.notify_after = v.parse().unwrap_or(s.notify_after),
+/// (name, fg, bg, the 16 ANSI colors). The first entry is the default.
+const THEMES: [(&str, u32, u32, [u32; 16]); 5] = [
+    ("default", 0xd8d8d8, 0x181818, [
+        0x181818, 0xab4642, 0xa1b56c, 0xf7ca88, 0x7cafc2, 0xba8baf, 0x86c1b9, 0xd8d8d8,
+        0x585858, 0xdc5c5c, 0xb5d37f, 0xffd98d, 0x8ec6dc, 0xd29ec8, 0x9bd6cd, 0xf8f8f8,
+    ]),
+    ("dracula", 0xf8f8f2, 0x282a36, [
+        0x21222c, 0xff5555, 0x50fa7b, 0xf1fa8c, 0xbd93f9, 0xff79c6, 0x8be9fd, 0xf8f8f2,
+        0x6272a4, 0xff6e6e, 0x69ff94, 0xffffa5, 0xd6acff, 0xff92df, 0xa4ffff, 0xffffff,
+    ]),
+    ("solarized-dark", 0x839496, 0x002b36, [
+        0x073642, 0xdc322f, 0x859900, 0xb58900, 0x268bd2, 0xd33682, 0x2aa198, 0xeee8d5,
+        0x002b36, 0xcb4b16, 0x586e75, 0x657b83, 0x839496, 0x6c71c4, 0x93a1a1, 0xfdf6e3,
+    ]),
+    ("gruvbox-dark", 0xebdbb2, 0x282828, [
+        0x282828, 0xcc241d, 0x98971a, 0xd79921, 0x458588, 0xb16286, 0x689d6a, 0xa89984,
+        0x928374, 0xfb4934, 0xb8bb26, 0xfabd2f, 0x83a598, 0xd3869b, 0x8ec07c, 0xebdbb2,
+    ]),
+    ("nord", 0xd8dee9, 0x2e3440, [
+        0x3b4252, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x88c0d0, 0xe5e9f0,
+        0x4c566a, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x81a1c1, 0xb48ead, 0x8fbcbb, 0xeceff4,
+    ]),
+];
+
+fn hex(h: u32) -> Color32 {
+    Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8)
+}
+
+fn parse(text: &str) -> Settings {
+    let (_, fg, bg, ansi) = THEMES[0];
+    let mut s = Settings {
+        font_size: 14.0,
+        font_path: None,
+        font_bold_path: None,
+        fg: hex(fg),
+        bg: hex(bg),
+        bar: Color32::BLACK,
+        ansi: ansi.map(hex),
+        cursor: CursorStyle { shape: CursorShape::Block, blinking: false },
+        notify_after: 10,
+    };
+    let color = |v: &str| u32::from_str_radix(v.trim_start_matches('#'), 16).ok().map(hex);
+    let lines: Vec<(&str, &str)> = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim(), v.trim()))
+        .collect();
+    // The theme goes first so fg/bg/colorN lines override it wherever they appear.
+    if let Some((_, name)) = lines.iter().find(|(k, _)| *k == "theme") {
+        if let Some((_, fg, bg, ansi)) = THEMES.iter().find(|t| t.0 == *name) {
+            (s.fg, s.bg, s.ansi) = (hex(*fg), hex(*bg), ansi.map(hex));
+        }
+    }
+    for (k, v) in lines {
+        match k {
+            "font_size" => s.font_size = v.parse().unwrap_or(s.font_size),
+            "font_path" => s.font_path = Some(v.to_string()),
+            "font_bold_path" => s.font_bold_path = Some(v.to_string()),
+            "fg" => s.fg = color(v).unwrap_or(s.fg),
+            "bg" => s.bg = color(v).unwrap_or(s.bg),
+            "cursor" => match v {
+                "block" => s.cursor.shape = CursorShape::Block,
+                "bar" => s.cursor.shape = CursorShape::Beam,
+                "underline" => s.cursor.shape = CursorShape::Underline,
                 _ => {}
+            },
+            "cursor_blink" => s.cursor.blinking = v == "true",
+            "notify_after" => s.notify_after = v.parse().unwrap_or(s.notify_after),
+            _ => {
+                if let Some(n) = k.strip_prefix("color").and_then(|n| n.parse::<usize>().ok()).filter(|n| *n < 16) {
+                    s.ansi[n] = color(v).unwrap_or(s.ansi[n]);
+                }
             }
         }
-        s.bar = s.bg.gamma_multiply(0.6);
-        s
     }
+    s.bar = s.bg.gamma_multiply(0.6);
+    s
+}
+
+fn load() -> Settings {
+    let path = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config/own-terminal/config"));
+    parse(&path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default())
 }
 
 // Settings are leaked on (re)load so cfg() can hand out plain references; a reload is rare and tiny.
@@ -114,18 +161,25 @@ fn cwd_of(_pid: i32) -> Option<std::path::PathBuf> {
     None
 }
 
+/// True when a bold face was loaded (otherwise bold text is just drawn brighter).
+static BOLD_OK: AtomicBool = AtomicBool::new(false);
+
 fn load_font(ctx: &egui::Context) {
-    let Some(bytes) = cfg().font_path.as_ref().and_then(|p| std::fs::read(p).ok()) else { return };
+    let read = |p: &Option<String>| p.as_ref().and_then(|p| std::fs::read(p).ok());
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert("custom".into(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
-    fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "custom".into());
+    if let Some(bytes) = read(&cfg().font_path) {
+        fonts.font_data.insert("custom".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        fonts.families.entry(egui::FontFamily::Monospace).or_default().insert(0, "custom".into());
+    }
+    let bold = read(&cfg().font_bold_path);
+    BOLD_OK.store(bold.is_some(), Ordering::Relaxed);
+    if let Some(bytes) = bold {
+        fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        fonts.families.insert(egui::FontFamily::Name("bold".into()), vec!["bold".into()]);
+    }
     ctx.set_fonts(fonts);
 }
 
-const ANSI: [u32; 16] = [
-    0x181818, 0xab4642, 0xa1b56c, 0xf7ca88, 0x7cafc2, 0xba8baf, 0x86c1b9, 0xd8d8d8, //
-    0x585858, 0xdc5c5c, 0xb5d37f, 0xffd98d, 0x8ec6dc, 0xd29ec8, 0x9bd6cd, 0xf8f8f8,
-];
 const NUMS: [Key; 9] = [
     Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9,
 ];
@@ -436,7 +490,8 @@ impl Pane {
             let (mut fg, mut bg) = (rgb(cell.fg, cfg().fg), rgb(cell.bg, cfg().bg));
             let selected = content.selection.is_some_and(|s| s.contains(cell.point));
             if f.contains(Flags::INVERSE) != selected { std::mem::swap(&mut fg, &mut bg); }
-            if f.contains(Flags::BOLD) { fg = fg.lerp_to_gamma(Color32::WHITE, 0.25); } // no bold face: brighten
+            let bold_face = f.contains(Flags::BOLD) && BOLD_OK.load(Ordering::Relaxed);
+            if f.contains(Flags::BOLD) && !bold_face { fg = fg.lerp_to_gamma(Color32::WHITE, 0.25); } // no bold face: brighten
             if f.contains(Flags::DIM) { fg = fg.gamma_multiply(0.6); }
             if let Some(&cur) = hits.get(&(cell.point.line.0, cell.point.column.0)) {
                 bg = if cur { Color32::from_rgb(0xf0, 0x8c, 0x3c) } else { Color32::from_rgb(0xf7, 0xca, 0x88) };
@@ -452,7 +507,7 @@ impl Pane {
                 }
             }
             let fmt = egui::TextFormat {
-                font_id: font.clone(),
+                font_id: if bold_face { FontId::new(font.size, egui::FontFamily::Name("bold".into())) } else { font.clone() },
                 color: fg,
                 italics: f.contains(Flags::ITALIC),
                 underline: if f.intersects(Flags::ALL_UNDERLINES) { egui::Stroke::new(1.0, fg) } else { egui::Stroke::NONE },
@@ -690,13 +745,12 @@ fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
 }
 
 fn rgb(c: Color, default: Color32) -> Color32 {
-    let hex = |h: u32| Color32::from_rgb((h >> 16) as u8, (h >> 8) as u8, h as u8);
     match c {
         Color::Spec(c) => Color32::from_rgb(c.r, c.g, c.b),
-        Color::Named(n) if (n as usize) < 16 => hex(ANSI[n as usize]),
+        Color::Named(n) if (n as usize) < 16 => cfg().ansi[n as usize],
         Color::Named(NamedColor::Background) => cfg().bg,
         Color::Named(_) => default,
-        Color::Indexed(i) if i < 16 => hex(ANSI[i as usize]),
+        Color::Indexed(i) if i < 16 => cfg().ansi[i as usize],
         Color::Indexed(i) if i >= 232 => {
             let v = 8 + (i - 232) * 10;
             Color32::from_rgb(v, v, v)
@@ -1088,5 +1142,19 @@ mod cwd_tests {
         let me = unsafe { libc::getpid() };
         let want = std::env::current_dir().unwrap().canonicalize().unwrap();
         assert_eq!(cwd_of(me).unwrap().canonicalize().unwrap(), want);
+    }
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn theme_then_overrides() {
+        let s = parse("color1 = #ff0000\ntheme = nord\nbg = #000000\n# color2 = #123456\ncolor99 = #ffffff");
+        assert_eq!(s.fg, hex(0xd8dee9)); // from the theme
+        assert_eq!(s.bg, hex(0x000000)); // overridden
+        assert_eq!(s.ansi[1], hex(0xff0000)); // override listed before the theme still wins
+        assert_eq!(s.ansi[2], hex(0xa3be8c)); // commented line ignored
     }
 }

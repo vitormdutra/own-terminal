@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 alacritty_terminal = "0.26.0"
 eframe = "0.37.0"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.191"

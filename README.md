@@ -1,128 +1,198 @@
 # own-terminal
 
-Terminal leve em Rust. Emulação via `alacritty_terminal`, janela e desenho via `eframe`/`egui`.
+A clean, fast, lightweight terminal emulator written in Rust. No Electron, no web view, no
+telemetry, no settings maze: one small native binary with tabs, splits, search and a single plain-text
+config file.
 
-## Instalar
+Terminal emulation comes from [`alacritty_terminal`](https://crates.io/crates/alacritty_terminal)
+(the engine behind Alacritty); the window and rendering are [`egui`/`eframe`](https://github.com/emilk/egui).
 
-1. Instale o Rust (uma vez só):
+> **Status:** early. Daily-driven on macOS. The code compiles for Linux (type-checked), but it has
+> not been run there yet, and Windows has not been checked at all. Bug reports are welcome.
 
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   ```
+## Features
 
-   Abra um terminal novo e confirme com `cargo --version`.
+- **Tabs and splits**: side-by-side and stacked panes in the same tab, draggable dividers, maximize a
+  pane, move focus with the keyboard, reorder tabs by dragging. New tabs and splits open in the
+  current directory.
+- **Search** the scrollback (`Cmd+F`), case-insensitive, with highlighted matches.
+- **Selection** by drag, word (double click) or line (triple click). `Cmd+click` opens URLs.
+- **Mouse support** inside full-screen programs (`vim`, `htop`, ...); hold `Shift` to select text
+  anyway.
+- **Full color**: 16 / 256 / truecolor, italic, underline, strikethrough, optional real bold font.
+  Five built-in themes plus per-color overrides.
+- **Proper keyboard handling**: xterm sequences for F-keys and modified arrows, bracketed paste,
+  optional Option-as-Meta.
+- **Long-command notifications**: get a desktop notification (and a Dock bounce) when a command that
+  ran for 10+ seconds finishes while the window is in the background. No shell integration needed.
+- **Zoom** the font at runtime, **reload** the config without restarting.
+- Lightweight: roughly 0.2 ms of UI time per frame, 40-60 frames/s while a flood of colored output
+  scrolls by (see [Performance](#performance)).
 
-2. Compile e instale o binário:
+## Install
 
-   ```bash
-   git clone <url-do-repo> own-terminal && cd own-terminal
-   cargo install --path .
-   ```
+You need a [Rust toolchain](https://rustup.rs) (stable).
 
-   O binário `own-terminal` vai para `~/.cargo/bin` (já no PATH depois do passo 1).
+```bash
+git clone https://github.com/vitormdutra/own-terminal.git
+cd own-terminal
+cargo install --path .
+```
 
-   Só para testar sem instalar: `cargo run --release`.
+This installs the `own-terminal` binary into `~/.cargo/bin`. To try it without installing:
+`cargo run --release`.
 
-### Abrir sem precisar de outro terminal (macOS)
-
-Gera um app de verdade, que você abre pelo Spotlight, Launchpad ou Dock:
+### macOS app (Spotlight / Dock)
 
 ```bash
 ./bundle.sh
 cp -R dist/OwnTerminal.app /Applications/
 ```
 
-Na primeira vez, se o macOS bloquear o app (não é assinado): clique com o botão direito em
-`OwnTerminal` → **Abrir** → **Abrir**. Depois é só `Cmd+Espaço` → "OwnTerminal".
-Para fixar no Dock, arraste o app para lá. Começa na sua pasta home.
+The app is not code-signed, so the first time macOS may refuse to open it: right-click
+`OwnTerminal` → **Open** → **Open**. After that it is a normal app you can launch from Spotlight or
+pin to the Dock. It starts in your home directory.
 
-## Usar
+### Linux / Windows
 
-```bash
-own-terminal
-```
+`cargo install --path .` works the same way; there is no installer or `.desktop` file yet.
+See [Linux and Windows](#linux-and-windows) for the differences.
 
-Abre uma janela com o seu shell padrão (`$SHELL`).
-
-| Ação | Como |
-|------|------|
-| Nova aba | `Cmd+T` ou botão `+` (abre na pasta da divisão em foco; as divisões também) |
-| Dividir lado a lado | `Cmd+D` |
-| Dividir empilhado | `Cmd+Shift+D` (dá para misturar as duas direções) |
-| Redimensionar divisão | Arrastar o divisor com o mouse |
-| Mudar o foco entre divisões | `Cmd+Option+←↑↓→` (vai para a vizinha naquela direção), `Cmd+]` / `Cmd+[` (próxima/anterior) ou clicar. A divisão em foco tem uma moldura fina |
-| Fechar divisão/aba | `Cmd+W` (fecha a divisão em foco; a aba some com a última divisão, e a janela com a última aba) |
-| Ir para a aba N | `Cmd+1` … `Cmd+9` ou clicar na aba |
-| Selecionar texto | Arrastar com o mouse; duplo clique = palavra; triplo clique = linha |
-| Zoom da fonte | `Cmd+=` aumenta, `Cmd+-` diminui, `Cmd+0` volta ao tamanho do config |
-| Buscar no histórico | `Cmd+F`; `Enter` = ocorrência anterior, `Shift+Enter` = próxima, `Esc` fecha |
-| Limpar seleção | Clicar |
-| Copiar | `Cmd+C` (macOS) / `Ctrl+C` com seleção em outros SOs |
-| Colar | `Cmd+V` (macOS) / `Ctrl+V` |
-| Abrir link | `Cmd+clique` numa URL `http(s)://` (o cursor vira mãozinha) |
-| Rolar histórico | Roda do mouse / trackpad |
-| Fechar | Sair do shell (`exit`, `Ctrl+D`) ou fechar a janela |
-
-## Configuração
-
-Opcional. Crie `~/.config/own-terminal/config` (reinicie o app para aplicar):
-
-```
-# comentários começam com #
-font_size = 15
-font_path = /Users/voce/Library/Fonts/JetBrainsMono-Regular.ttf
-font_bold_path = /Users/voce/Library/Fonts/JetBrainsMono-Bold.ttf  # opcional
-theme = dracula       # default | dracula | solarized-dark | gruvbox-dark | nord
-fg = #d8d8d8          # sobrescreve o tema
-bg = #181818
-color1 = #ff5555      # color0 a color15: as 16 cores ANSI (0-7 normais, 8-15 brilhantes)
-cursor = block        # block | bar | underline
-cursor_blink = false  # true para piscar
-notify_after = 10     # avisa quando um comando com mais de N segundos termina (0 desliga)
-```
-
-Sem arquivo, valem os padrões acima. `theme` escolhe um conjunto pronto de cores; `fg`, `bg` e
-`color0`…`color15` sobrescrevem partes dele, em qualquer ordem no arquivo.
-
-**Negrito:** a fonte padrão não tem negrito, então o texto em negrito aparece com cor mais clara.
-Para negrito de verdade, aponte `font_bold_path` para a versão em negrito da *mesma* família de
-`font_path` (as larguras dos caracteres precisam ser iguais, senão a grade desalinha). `Cmd+,` recarrega o arquivo sem reiniciar (cores, fonte e tamanho valem na hora; a forma do cursor só vale para abas novas). Programas como o vim podem trocar a forma do cursor sozinhos. O título da janela segue o título do programa em foco. `font_path` aponta para um `.ttf`/`.otf` monoespaçado.
-
-## Aviso de comando longo
-
-Quando um comando que rodou por `notify_after` segundos (padrão 10) ou mais termina e a janela
-está em segundo plano, o app mostra uma notificação e faz o ícone pular no Dock. Funciona
-detectando qual processo está em primeiro plano no terminal, então não precisa configurar o shell.
-No macOS a notificação aparece como vinda do "Script Editor"; se não aparecer, libere em
-Ajustes do Sistema → Notificações.
-
-## Atalhos de edição (estilo macOS)
-
-| Atalho | Faz |
-|--------|-----|
-| `Cmd+Backspace` | apaga a linha até o cursor |
-| `Cmd+←` / `Cmd+→` | início / fim da linha |
-| `Option+Backspace` | apaga a palavra |
-| `Option+←` / `Option+→` | pula uma palavra |
-
-## Limitações atuais
-
-- Divisões: não há como trocar de lugar nem "zoom" de uma divisão.
-- Busca: só vê o histórico do terminal. Programas em tela cheia (nano, vim, less) não deixam histórico, então use a busca deles (`Ctrl+W` no nano, `/` no vim e no less).
-- Busca: ignora maiúsculas, procura texto simples (sem regex) e não atualiza sozinha com saída nova; digite de novo para refazer.
-- Aviso de comando longo: só macOS e Linux; assume que o terminal está ocioso 2s depois de aberto.
-- Sem reordenar abas.
-- Itálico, sublinhado e tachado são desenhados. Negrito de verdade exige `font_bold_path`; sem ele vira cor mais clara.
-- No Linux/Windows compila em teoria, mas só foi testado no macOS.
-
-## Atualizar
+### Update / uninstall
 
 ```bash
-git pull && cargo install --path . && ./bundle.sh
-```
-
-## Desinstalar
-
-```bash
+git pull && cargo install --path . && ./bundle.sh   # ./bundle.sh is macOS only
 cargo uninstall own-terminal
 ```
+
+## Usage
+
+Run `own-terminal` (or open the app). It starts your login shell (`$SHELL`).
+
+On macOS the app shortcuts use `Cmd`. On Linux and Windows, replace `Cmd` with `Ctrl+Shift` (so plain
+`Ctrl+letter` always reaches your shell); the few exceptions are noted in the table.
+
+| Action | Shortcut |
+|--------|----------|
+| New tab | `Cmd+T`, or the `+` button |
+| Close pane / tab / window | `Cmd+W` closes the focused pane; the tab closes with its last pane, the window with its last tab. Tabs also have a `×` button |
+| Go to tab N | `Cmd+1` … `Cmd+9`, or click the tab |
+| Reorder tabs | Drag a tab |
+| Split side by side | `Cmd+D` |
+| Split stacked | `Cmd+Shift+D` (Linux/Windows: `Ctrl+Shift+Alt+D`). You can mix both directions |
+| Resize a split | Drag the divider |
+| Move focus between panes | `Cmd+Option+←↑↓→` (the neighbour in that direction), or `Cmd+]` / `Cmd+[` (next / previous), or click |
+| Maximize / restore pane | `Cmd+Shift+Enter` |
+| Search scrollback | `Cmd+F`; `Enter` = previous (older) match, `Shift+Enter` = next, `Esc` closes |
+| Select text | Drag; double click = word; triple click = line; click to clear |
+| Copy | `Cmd+C` (Linux/Windows: `Ctrl+C` *with a selection*; with no selection it interrupts the program as usual) |
+| Paste | `Cmd+V` (Linux/Windows: `Ctrl+V` or `Ctrl+Shift+V`) |
+| Open a link | `Cmd+click` on an `http(s)://` URL (Linux/Windows: `Ctrl+click`) |
+| Scroll history | Mouse wheel / trackpad |
+| Font zoom | `Cmd+=` bigger, `Cmd+-` smaller, `Cmd+0` back to the configured size |
+| Reload config | `Cmd+,` |
+| Delete line / word | `Cmd+Backspace` / `Option+Backspace` (macOS) |
+| Start / end of line | `Cmd+←` / `Cmd+→` (macOS) |
+| Previous / next word | `Option+←` / `Option+→` |
+
+Notes:
+
+- **Scrolling in full-screen programs.** In `less`, `man` and similar, the wheel sends arrow keys. In
+  programs that ask for the mouse (`vim`, `htop`) it is sent to the program.
+- **Search only sees the terminal's own history.** Full-screen programs such as `nano` or `vim` keep
+  no history in the terminal, so use their own search (`Ctrl+W` in nano, `/` in vim and less).
+- **Window title** follows the title set by the program in the focused pane.
+
+## Configuration
+
+Everything is optional. Create `~/.config/own-terminal/config` (on Windows, under `%USERPROFILE%`).
+It is a plain `key = value` file; lines starting with `#` are comments, and so is anything after
+` #` at the end of a line.
+
+```ini
+font_size = 15
+font_path = /path/to/YourMono-Regular.ttf
+font_bold_path = /path/to/YourMono-Bold.ttf   # optional, same family as font_path
+
+theme = dracula           # default | dracula | solarized-dark | gruvbox-dark | nord
+fg = #d8d8d8              # override the theme's foreground...
+bg = #181818              # ...and background
+color1 = #ff5555          # color0 .. color15: the 16 ANSI colors (0-7 normal, 8-15 bright)
+accent = #7cafc2          # active tab marker and focused-pane frame
+
+cursor = block            # block | bar | underline
+cursor_blink = false
+padding = 6               # pixels around the text
+scrollback = 10000        # lines of history per pane
+
+option_as_meta = false    # macOS: Option+letter sends ESC+letter (vim/emacs/readline)
+notify_after = 10         # seconds; notify when a longer command finishes in the background (0 = off)
+```
+
+`theme` picks a preset; `fg`, `bg` and `colorN` override parts of it regardless of their order in the
+file. After editing, press `Cmd+,` to reload. Colors, fonts and size apply immediately; cursor shape
+applies to new panes.
+
+**Fonts.** The built-in font has no bold face, so bold text is drawn in a brighter color. For real bold,
+set `font_bold_path` to the bold file of the *same* family as `font_path` (the glyph widths must match
+or the grid misaligns). Use `.ttf` / `.otf` files; `.ttc` collections are not supported.
+
+**Option as Meta.** By default `Option+letter` types the usual macOS symbols and accents. Turning
+`option_as_meta` on makes it send `ESC` + letter instead, which is what vim, emacs and readline expect.
+
+**Notifications.** The terminal tracks which process owns the foreground of the pty, so it needs no
+shell setup. It assumes a pane is idle two seconds after it opens. On macOS the notification appears
+under the name "Script Editor"; if you do not see it, allow it in System Settings → Notifications.
+
+## Linux and Windows
+
+The code avoids platform-specific APIs apart from `bundle.sh` and desktop notifications, and
+`cargo check --target x86_64-unknown-linux-gnu` passes. It has **not been run** outside macOS, so
+expect rough edges. Differences you should know about:
+
+- App shortcuts are `Ctrl+Shift+…` instead of `Cmd+…`; stacked split is `Ctrl+Shift+Alt+D`.
+- `Ctrl+C` copies only when text is selected, otherwise it sends the interrupt.
+- Notifications use `notify-send` on Linux; they are not implemented on Windows.
+- Directory inheritance for new tabs uses `/proc` on Linux; on Windows new tabs open in the default
+  directory.
+
+## Performance
+
+Start it with `OWN_TERMINAL_PROFILE=1 own-terminal` and, once per second, it prints to stderr the frames
+per second and the average and worst time spent building the UI. With about 800,000 lines of colored
+text streamed in a row, I measured 40-60 frames/s at roughly 0.2 ms average per frame (3 ms worst case).
+GPU time is not included in that number.
+
+## Known limitations
+
+- Search matches plain text only (no regex) and does not refresh on its own as new output arrives;
+  retype to search again.
+- Bold needs `font_bold_path`; otherwise it is only a brighter color.
+- No ligatures, no image protocols, no IME-specific handling beyond what `egui` provides.
+- Panes cannot be swapped or dragged to another split.
+- Not code-signed or notarized on macOS.
+
+## Development
+
+```text
+src/main.rs    app, tab bar, shortcuts, search bar
+src/pane.rs    one terminal: pty, input, mouse, drawing, search
+src/layout.rs  split tree, dividers, directional focus
+src/config.rs  config parsing, themes, fonts
+```
+
+```bash
+cargo test --release     # unit tests; one of them starts a real pty and takes ~8 s
+cargo clippy             # if you have it installed
+```
+
+The foreground-process test spawns `/bin/sh` on a pty, so it needs a Unix system.
+
+## Acknowledgements
+
+Built on [alacritty_terminal](https://github.com/alacritty/alacritty) and
+[egui](https://github.com/emilk/egui).
+
+## License
+
+[MIT](LICENSE)

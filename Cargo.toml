@@ -2,6 +2,9 @@
 name = "own-terminal"
 version = "0.1.0"
 edition = "2024"
+description = "A clean, fast, lightweight terminal emulator with tabs, splits and search"
+license = "MIT"
+repository = "https://github.com/vitormdutra/own-terminal"
 
 [dependencies]
 alacritty_terminal = "0.26.0"

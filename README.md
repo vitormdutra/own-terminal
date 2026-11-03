@@ -101,6 +101,7 @@ On macOS the app shortcuts use `Cmd`. On Linux and Windows, replace `Cmd` with `
 | Resize a split | Drag the divider |
 | Move focus between panes | `Cmd+Option+←↑↓→` (the neighbour in that direction), or `Cmd+]` / `Cmd+[` (next / previous), or click |
 | Maximize / restore pane | `Cmd+Shift+Enter` |
+| Clear terminal (like `clear`) | `Cmd+K` |
 | Search scrollback | `Cmd+F`; `Enter` = previous (older) match, `Shift+Enter` = next, `Esc` closes |
 | Select text | Drag; double click = word; triple click = line; click to clear |
 | Copy | `Cmd+C` (Linux/Windows: `Ctrl+C` *with a selection*; with no selection it interrupts the program as usual) |

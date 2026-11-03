@@ -166,7 +166,10 @@ pub fn load_font(ctx: &egui::Context) {
     BOLD_OK.store(bold.is_some(), Ordering::Relaxed);
     if let Some(bytes) = bold {
         fonts.font_data.insert("bold".into(), Arc::new(egui::FontData::from_owned(bytes)));
-        fonts.families.insert(egui::FontFamily::Name("bold".into()), vec!["bold".into()]);
+        // Keep the monospace fonts as fallback so symbols/emoji missing from the bold face still draw.
+        let mut fam = vec!["bold".to_string()];
+        fam.extend(fonts.families[&egui::FontFamily::Monospace].iter().cloned());
+        fonts.families.insert(egui::FontFamily::Name("bold".into()), fam);
     }
     ctx.set_fonts(fonts);
 }

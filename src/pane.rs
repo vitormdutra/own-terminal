@@ -347,6 +347,15 @@ impl Pane {
                 term.scroll_display(Scroll::Delta(lines));
             }
         }
+        // Dead keys (´ + a = á) only compose when the window has IME enabled; egui does that while an IME rect is set.
+        if focused && !v.block {
+            ui.ctx().output_mut(|o| o.ime = Some(egui::output::IMEOutput {
+                purpose: egui::IMEPurpose::Terminal,
+                rect,
+                cursor_rect: Rect::from_min_size(rect.min, Vec2::new(cw, ch)),
+                should_interrupt_composition: false,
+            }));
+        }
         if focused && !v.block { ui.input(|i| {
             let typed = std::cell::Cell::new(false);
             let send = |b: Vec<u8>| {
@@ -358,6 +367,7 @@ impl Pane {
                     // Option as Meta: the key press below sends ESC+letter, so drop the composed character (å, ƒ...).
                     egui::Event::Text(_) if meta && i.modifiers.alt => {}
                     egui::Event::Text(t) => send(t.clone().into_bytes()),
+                    egui::Event::Ime(egui::ImeEvent::Commit(t)) => send(t.clone().into_bytes()),
                     egui::Event::Paste(t) => send(paste_bytes(t, bracketed)),
                     egui::Event::Copy => copy = true,
                     // Off macOS egui turns Ctrl+C / Ctrl+X into Copy/Cut events instead of key presses; the shell still needs them.
@@ -466,12 +476,15 @@ impl Pane {
             }
             let job = &mut row.items.last_mut().unwrap().1;
             let c = if f.contains(Flags::HIDDEN) { ' ' } else { cell.c };
+            // Zero-width marks (emoji variation selector U+FE0F, ZWJ, skin tones, combining accents) live beside the base char.
+            let mut cs = String::from(c);
+            if let Some(z) = cell.zerowidth() { cs.extend(z); }
             match job.sections.last_mut() {
                 Some(sec) if sec.format == fmt => {
-                    job.text.push(c);
+                    job.text.push_str(&cs);
                     sec.byte_range.end = egui::text::ByteIndex(job.text.len());
                 }
-                _ => job.append(c.encode_utf8(&mut [0; 4]), 0.0, fmt),
+                _ => job.append(&cs, 0.0, fmt),
             }
             row.next = if wide { usize::MAX } else { col + 1 };
         }

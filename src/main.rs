@@ -52,6 +52,7 @@ struct Keys {
     maximize: bool,
     esc: bool,
     reload: bool,
+    clear: bool,
     dir: Option<(i32, i32)>,
 }
 
@@ -151,6 +152,7 @@ impl eframe::App for App {
             k.find = i.key_pressed(Key::F);
             k.maximize = i.key_pressed(Key::Enter) && i.modifiers.shift;
             k.reload = i.key_pressed(Key::Comma);
+            k.clear = i.key_pressed(Key::K);
             if i.modifiers.alt {
                 k.dir = [(Key::ArrowLeft, (-1, 0)), (Key::ArrowRight, (1, 0)), (Key::ArrowUp, (0, -1)), (Key::ArrowDown, (0, 1))]
                     .iter()
@@ -176,6 +178,15 @@ impl eframe::App for App {
                 t.focus += 1;
                 t.zoom = false;
             }
+        }
+        if k.clear {
+            // Like `clear`: drop the scrollback, then Ctrl+L so the shell wipes the screen and redraws the prompt.
+            let t = &mut self.tabs[self.active];
+            let mut ps = Vec::new();
+            t.root.panes_mut(&mut ps);
+            let p = &ps[t.focus.min(ps.len() - 1)];
+            p.term.lock().grid_mut().clear_history();
+            let _ = p.tx.send(alacritty_terminal::event_loop::Msg::Input(vec![0x0c].into()));
         }
         if k.maximize { self.tabs[self.active].zoom ^= true; }
         if k.reload {

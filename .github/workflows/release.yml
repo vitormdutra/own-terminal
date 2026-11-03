@@ -1,9 +1,10 @@
 name: Release
 
-# Push a tag like v0.1.0 to build the binaries and publish them as a GitHub release.
+# Every push to main builds the binaries and publishes a release, bumping the patch version.
+# For a minor/major bump, create the release by hand (gh release create v1.6.0 --target main).
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
@@ -55,5 +56,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes \
+          last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+          IFS=. read -r major minor patch <<< "${last:-v0.0.0}"
+          next="$major.$minor.$((patch + 1))"
+          gh release create "$next" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes \
             OwnTerminal-macos-apple-silicon.zip own-terminal-linux-x86_64.tar.gz

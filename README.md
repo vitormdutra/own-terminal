@@ -33,6 +33,15 @@ Terminal emulation comes from [`alacritty_terminal`](https://crates.io/crates/al
 
 ## Install
 
+### Homebrew (macOS, Apple Silicon)
+
+```bash
+brew install --cask vitormdutra/tap/own-terminal
+brew upgrade --cask own-terminal   # to update later
+```
+
+The cask also clears the quarantine flag, so there is no Gatekeeper prompt.
+
 ### Download a build
 
 Grab the latest from the [Releases page](https://github.com/vitormdutra/own-terminal/releases):
@@ -124,6 +133,27 @@ Notes:
   no history in the terminal, so use their own search (`Ctrl+W` in nano, `/` in vim and less).
 - **Window title** follows the title set by the program in the focused pane.
 
+### Copy last output (`Cmd+J`)
+
+It finds the last command through a hook injected into the local **zsh** only (bash and others are not
+supported locally). Inside `ssh` the whole session is one command, so install the same hook on the
+server (`~/.zshrc` or `~/.bashrc`):
+
+```zsh
+# zsh
+autoload -Uz add-zsh-hook
+_own_pre()  { printf '\e]8;id=%s_%s;own:block\a' $$ $((++_own_n)) }
+_own_post() { printf '\e]8;;\a' }
+add-zsh-hook preexec _own_pre
+add-zsh-hook precmd _own_post
+```
+
+```bash
+# bash 4.4+
+_own_post() { printf '\e]8;;\a'; PS0=$'\e]8;id='$$'_'$((++_own_n))$';own:block\a'; }
+PROMPT_COMMAND="_own_post${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+```
+
 ## Configuration
 
 Everything is optional. Create `~/.config/own-terminal/config` (on Windows, under `%USERPROFILE%`).
@@ -148,6 +178,7 @@ scrollback = 10000        # lines of history per pane
 
 option_as_meta = false    # macOS: Option+letter sends ESC+letter (vim/emacs/readline)
 notify_after = 10         # seconds; notify when a longer command finishes in the background (0 = off)
+check_updates = true      # false: never contact GitHub to look for a newer version
 ```
 
 `theme` picks a preset; `fg`, `bg` and `colorN` override parts of it regardless of their order in the
@@ -164,6 +195,11 @@ or the grid misaligns). Use `.ttf` / `.otf` files; `.ttc` collections are not su
 **Notifications.** The terminal tracks which process owns the foreground of the pty, so it needs no
 shell setup. It assumes a pane is idle two seconds after it opens. On macOS the notification appears
 under the name "Script Editor"; if you do not see it, allow it in System Settings → Notifications.
+
+**Update notice.** On start the app asks GitHub (through `curl`) whether a newer release exists, and
+shows `vX.Y.Z available` at the right of the tab bar; click it to open the release page. That is the
+only network request it makes, and nothing is sent besides the request itself. Set
+`check_updates = false` to turn it off.
 
 ## Linux and Windows
 
@@ -186,8 +222,7 @@ GPU time is not included in that number.
 
 ## Known limitations
 
-- Search matches plain text only (no regex) and does not refresh on its own as new output arrives;
-  retype to search again.
+- Search matches plain text only (no regex). It rescans about once a second while the bar is open.
 - Bold needs `font_bold_path`; otherwise it is only a brighter color.
 - No ligatures, no image protocols, no IME-specific handling beyond what `egui` provides.
 - Panes cannot be swapped or dragged to another split.
@@ -229,22 +264,3 @@ Built on [alacritty_terminal](https://github.com/alacritty/alacritty) and
 ## License
 
 [MIT](LICENSE)
-
-## Copy last output over SSH
-
-`Cmd+J` finds the last command through a hook injected into the local zsh. Inside `ssh` the whole session is one command, so install the same hook on the server (`~/.zshrc` or `~/.bashrc`):
-
-```zsh
-# zsh
-autoload -Uz add-zsh-hook
-_own_pre()  { printf '\e]8;id=%s_%s;own:block\a' $$ $((++_own_n)) }
-_own_post() { printf '\e]8;;\a' }
-add-zsh-hook preexec _own_pre
-add-zsh-hook precmd _own_post
-```
-
-```bash
-# bash 4.4+
-_own_post() { printf '\e]8;;\a'; PS0=$'\e]8;id='$$'_'$((++_own_n))$';own:block\a'; }
-PROMPT_COMMAND="_own_post${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-```

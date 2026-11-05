@@ -25,6 +25,7 @@ pub struct Settings {
     pub accent: Color32,
     pub scrollback: usize,
     pub option_as_meta: bool,
+    pub check_updates: bool,
 }
 
 /// (name, fg, bg, the 16 ANSI colors). The first entry is the default.
@@ -80,6 +81,7 @@ pub fn parse(text: &str) -> Settings {
         accent: Color32::TRANSPARENT,
         scrollback: 10_000,
         option_as_meta: false,
+        check_updates: true,
     };
     let mut accent = None;
     let color = |v: &str| u32::from_str_radix(v.trim_start_matches('#'), 16).ok().map(hex);
@@ -90,11 +92,10 @@ pub fn parse(text: &str) -> Settings {
         .map(|(k, v)| (k.trim(), strip_comment(v).trim()))
         .collect();
     // The theme goes first so fg/bg/colorN lines override it wherever they appear.
-    if let Some((_, name)) = lines.iter().find(|(k, _)| *k == "theme") {
-        if let Some((_, fg, bg, ansi)) = THEMES.iter().find(|t| t.0 == *name) {
+    if let Some((_, name)) = lines.iter().find(|(k, _)| *k == "theme")
+        && let Some((_, fg, bg, ansi)) = THEMES.iter().find(|t| t.0 == *name) {
             (s.fg, s.bg, s.ansi) = (hex(*fg), hex(*bg), ansi.map(hex));
         }
-    }
     for (k, v) in lines {
         match k {
             "font_size" => s.font_size = v.parse().unwrap_or(s.font_size),
@@ -114,6 +115,7 @@ pub fn parse(text: &str) -> Settings {
             "scrollback" => s.scrollback = v.parse().map(|n: usize| n.min(1_000_000)).unwrap_or(s.scrollback),
             "accent" => accent = color(v),
             "option_as_meta" => s.option_as_meta = v == "true",
+            "check_updates" => s.check_updates = v != "false",
             _ => {
                 if let Some(n) = k.strip_prefix("color").and_then(|n| n.parse::<usize>().ok()).filter(|n| *n < 16) {
                     s.ansi[n] = color(v).unwrap_or(s.ansi[n]);

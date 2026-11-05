@@ -190,8 +190,7 @@ impl Pane {
         let proxy = Proxy { ctx: ctx.clone(), tx: tx.clone(), title: title.clone(), dead: dead.clone() };
 
         // Launched from Finder the cwd is "/"; start in $HOME instead.
-        let mut opts = tty::Options::default();
-        opts.working_directory = cwd;
+        let mut opts = tty::Options { working_directory: cwd, ..Default::default() };
         if opts.working_directory.is_none() && std::env::current_dir().is_ok_and(|d| d.as_os_str() == "/") {
             opts.working_directory = home_dir();
         }
@@ -277,6 +276,13 @@ impl Pane {
         self.match_idx = self.matches.len().saturating_sub(1);
     }
 
+    /// Re-runs the search for new output, keeping the current match (new matches only append at the end).
+    pub fn refresh_search(&mut self, query: &str) {
+        let i = self.match_idx;
+        self.search(query);
+        self.match_idx = i.min(self.matches.len().saturating_sub(1));
+    }
+
     /// Moves to the match `step` away from the current one and scrolls it into view.
     pub fn jump(&mut self, step: isize) {
         if self.matches.is_empty() { return; }
@@ -328,9 +334,8 @@ impl Pane {
             let (pt, side) = hit(pos);
             if resp.drag_started() {
                 term.selection = Some(Selection::new(SelectionType::Simple, pt, side));
-            } else if resp.dragged() {
-                if let Some(s) = term.selection.as_mut() { s.update(pt, side); }
-            }
+            } else if resp.dragged()
+                && let Some(s) = term.selection.as_mut() { s.update(pt, side); }
         }
         let cmd = ui.input(|i| i.modifiers.command);
         if cmd && !mouse && resp.hover_pos().is_some_and(|p| url_at(&term, hit(p).0).is_some()) {
@@ -343,13 +348,12 @@ impl Pane {
             }
         }
 
-        if let Some(pos) = resp.interact_pointer_pos().filter(|_| !mouse) {
-            if resp.triple_clicked() || resp.double_clicked() {
+        if let Some(pos) = resp.interact_pointer_pos().filter(|_| !mouse)
+            && (resp.triple_clicked() || resp.double_clicked()) {
                 let (pt, side) = hit(pos);
                 let kind = if resp.triple_clicked() { SelectionType::Lines } else { SelectionType::Semantic };
                 term.selection = Some(Selection::new(kind, pt, side));
             }
-        }
 
         let mut copy = false;
         let app_cursor = term.mode().contains(TermMode::APP_CURSOR);
@@ -370,7 +374,7 @@ impl Pane {
                             };
                             // A release only matters if we reported the press.
                             if !*pressed && self.mouse_btn.is_none() { continue; }
-                            let code = b | m.shift as u8 * 4 | m.alt as u8 * 8 | m.ctrl as u8 * 16;
+                            let code = b | (m.shift as u8 * 4) | (m.alt as u8 * 8) | (m.ctrl as u8 * 16);
                             self.mouse_btn = pressed.then_some(code);
                             (code, cell_at(*pos), *pressed)
                         }
@@ -456,9 +460,8 @@ impl Pane {
                             send(b.to_vec());
                         } else if let Some(c) = meta_char {
                             send(format!("\x1b{c}").into_bytes());
-                        } else if !is_app_shortcut(m) {
-                            if let Some(b) = key_bytes(*key, m.shift, m.alt, m.ctrl, app_cursor) { send(b) }
-                        }
+                        } else if !is_app_shortcut(m)
+                            && let Some(b) = key_bytes(*key, m.shift, m.alt, m.ctrl, app_cursor) { send(b) }
                     }
                     _ => {}
                 }

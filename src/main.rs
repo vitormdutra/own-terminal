@@ -7,6 +7,7 @@ use eframe::egui::{self, FontId, Key, Pos2, Rect, Vec2};
 mod config;
 mod layout;
 mod pane;
+mod update;
 
 use config::*;
 use layout::*;
@@ -36,6 +37,8 @@ struct App {
     search: Option<String>,
     search_new: bool,
     search_focus: bool,
+    update: std::sync::Arc<Mutex<Option<String>>>, // newer release tag, once found
+    search_at: Instant, // last time the search was run, to refresh it as output arrives
     rects: Vec<Rect>, // last frame's pane rects of the active tab, for directional focus
 }
 
@@ -125,13 +128,12 @@ impl eframe::App for App {
             let mut ps = Vec::new();
             t.root.panes_mut(&mut ps);
             for p in ps {
-                if let Some(secs) = p.poll(cfg().notify_after) {
-                    if !win_focused {
+                if let Some(secs) = p.poll(cfg().notify_after)
+                    && !win_focused {
                         let title = p.title.lock().unwrap().clone();
-                        notify(&format!("Terminou após {secs}s {title}").trim_end().to_string());
+                        notify(format!("Finished after {secs}s {title}").trim_end());
                         ui.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
                     }
-                }
             }
         }
         ui.ctx().request_repaint_after(Duration::from_secs(1));
@@ -173,14 +175,13 @@ impl eframe::App for App {
             self.active = self.active.min(self.tabs.len() - 1);
         }
         if let Some(n) = k.goto.filter(|n| *n < self.tabs.len()) { self.active = n; }
-        if let Some(stacked) = k.split {
-            if let Ok(p) = Pane::spawn(ui.ctx(), self.focused_cwd()) {
+        if let Some(stacked) = k.split
+            && let Ok(p) = Pane::spawn(ui.ctx(), self.focused_cwd()) {
                 let t = &mut self.tabs[self.active];
                 t.root.split(&mut t.focus.clone(), &mut Some(p), stacked);
                 t.focus += 1;
                 t.zoom = false;
             }
-        }
         if k.clear {
             // Like `clear`: drop the scrollback, then Ctrl+L so the shell wipes the screen and redraws the prompt.
             let t = &mut self.tabs[self.active];
@@ -215,11 +216,9 @@ impl eframe::App for App {
         let n = t.root.count();
         let multi = n > 1;
         t.focus = t.focus.min(n - 1);
-        if let Some((dx, dy)) = k.dir {
-            if self.rects.len() == n {
-                if let Some(j) = nav(&self.rects, t.focus, dx, dy) { t.focus = j; }
-            }
-        }
+        if let Some((dx, dy)) = k.dir
+            && self.rects.len() == n
+                && let Some(j) = nav(&self.rects, t.focus, dx, dy) { t.focus = j; }
         t.focus = (t.focus as isize + k.step).rem_euclid(n as isize) as usize;
 
         let mut ps = Vec::new();
@@ -301,6 +300,16 @@ impl eframe::App for App {
         if ui.interact(plus, ui.scope_id().with("plus"), egui::Sense::CLICK).clicked() { spawn = true; }
         p.text(plus.center(), egui::Align2::CENTER_CENTER, "+", FontId::proportional(14.0), cfg().fg);
         if spawn { self.new_tab(ui.ctx()); }
+        // A newer release exists: show a link at the right end of the bar, if the tabs leave room for it.
+        if let Some(tag) = self.update.lock().unwrap().clone() {
+            let r = Rect::from_min_max(Pos2::new(bar.right() - 190.0, bar.top()), bar.max);
+            if r.left() > plus.right() {
+                let resp = ui.interact(r, ui.scope_id().with("update"), egui::Sense::CLICK).on_hover_cursor(egui::CursorIcon::PointingHand);
+                if resp.clicked() { open_url(update::RELEASES); }
+                let c = if resp.hovered() { cfg().fg } else { cfg().fg.gamma_multiply(0.7) };
+                p.text(Pos2::new(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, format!("{tag} available ↗"), FontId::proportional(12.0), c);
+            }
+        }
         if self.active >= self.tabs.len() { return; }
 
         // Panes (and their draggable dividers) fill the body.
@@ -328,7 +337,7 @@ impl eframe::App for App {
             t.root.panes_mut(&mut ps);
             let pane = &mut ps[t.focus.min(n - 1)];
             let te = Rect::from_min_max(Pos2::new(sbar.left() + 8.0, sbar.top() + 2.0), Pos2::new(sbar.right() - 80.0, sbar.bottom() - 2.0));
-            let r = ui.put(te, egui::TextEdit::singleline(&mut q).hint_text("Buscar (Enter: anterior, Shift+Enter: próximo, Esc: fechar)"));
+            let r = ui.put(te, egui::TextEdit::singleline(&mut q).hint_text("Search (Enter: previous, Shift+Enter: next, Esc: close)"));
             if self.search_new {
                 r.request_focus();
                 self.search_new = false;
@@ -336,6 +345,11 @@ impl eframe::App for App {
             if r.changed() {
                 pane.search(&q);
                 pane.jump(0);
+                self.search_at = Instant::now();
+            } else if !q.is_empty() && self.search_at.elapsed() >= Duration::from_secs(1) {
+                // ponytail: full rescan once a second while the bar is open; incremental scan if huge scrollbacks lag.
+                pane.refresh_search(&q);
+                self.search_at = Instant::now();
             }
             let (enter, shift) = ui.input(|i| (i.key_pressed(Key::Enter), i.modifiers.shift));
             if r.lost_focus() && enter {
@@ -374,6 +388,8 @@ fn main() -> eframe::Result {
             search: None,
             search_new: false,
             search_focus: false,
+            update: if cfg().check_updates { update::check(&cc.egui_ctx) } else { Default::default() },
+            search_at: Instant::now(),
             rects: vec![],
         }))
     }))

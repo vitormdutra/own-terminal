@@ -10,8 +10,25 @@ permissions:
   contents: write
 
 jobs:
+  # The next version is computed first so the binaries can embed it (the update notice compares against it).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      next: ${{ steps.next.outputs.next }}
+    steps:
+      - id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+          IFS=. read -r major minor patch <<< "${last:-v0.0.0}"
+          echo "next=$major.$minor.$((patch + 1))" >> "$GITHUB_OUTPUT"
+
   macos:
+    needs: version
     runs-on: macos-latest
+    env:
+      OWN_TERMINAL_VERSION: ${{ needs.version.outputs.next }}
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
@@ -25,7 +42,10 @@ jobs:
           path: OwnTerminal-macos-apple-silicon.zip
 
   linux:
+    needs: version
     runs-on: ubuntu-latest
+    env:
+      OWN_TERMINAL_VERSION: ${{ needs.version.outputs.next }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux system libraries
@@ -46,8 +66,10 @@ jobs:
           path: own-terminal-linux-x86_64.tar.gz
 
   publish:
-    needs: [macos, linux]
+    needs: [version, macos, linux]
     runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -56,8 +78,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
-          IFS=. read -r major minor patch <<< "${last:-v0.0.0}"
-          next="$major.$minor.$((patch + 1))"
-          gh release create "$next" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes \
+          gh release create "${{ needs.version.outputs.next }}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes \
             OwnTerminal-macos-apple-silicon.zip own-terminal-linux-x86_64.tar.gz
+      # Point the Homebrew cask (vitormdutra/homebrew-tap) at the new zip. Skipped until the HOMEBREW_TAP_TOKEN secret exists.
+      - name: Update the Homebrew tap
+        if: env.TAP_TOKEN != ''
+        env:
+          VERSION: ${{ needs.version.outputs.next }}
+        run: |
+          sha=$(sha256sum OwnTerminal-macos-apple-silicon.zip | cut -d' ' -f1)
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/vitormdutra/homebrew-tap.git" tap
+          cd tap
+          sed -i -e "s/^  version \".*\"/  version \"${VERSION#v}\"/" -e "s/^  sha256 \".*\"/  sha256 \"$sha\"/" Casks/own-terminal.rb
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git commit -am "own-terminal $VERSION"
+          git push

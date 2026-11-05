@@ -54,6 +54,65 @@ impl Dimensions for Size {
     fn columns(&self) -> usize { self.cols }
 }
 
+// zsh only: a ZDOTDIR shim whose .zshenv restores the real ZDOTDIR, sources the user's .zshenv, then
+// wraps each command's output in an OSC 8 hyperlink (uri "own:block", unique id) that `Pane::last_output` finds.
+// ponytail: zsh only; bash/fish need their own hook (PROMPT_COMMAND / fish_preexec).
+const ZSH_HOOK: &str = r#"ZDOTDIR=$OWN_ZDOTDIR; [[ -n $ZDOTDIR ]] || unset ZDOTDIR
+unset OWN_ZDOTDIR
+[[ -f ${ZDOTDIR:-$HOME}/.zshenv ]] && source ${ZDOTDIR:-$HOME}/.zshenv
+if [[ -o interactive ]]; then
+  autoload -Uz add-zsh-hook
+  _own_pre() { printf '\e]8;id=%s_%s;own:block\a' $$ $((++_own_n)) }
+  _own_post() { printf '\e]8;;\a' }
+  add-zsh-hook preexec _own_pre
+  add-zsh-hook precmd _own_post
+fi
+"#;
+
+fn zsh_block_hook(opts: &mut tty::Options) {
+    if !std::env::var("SHELL").map_or(cfg!(target_os = "macos"), |s| s.ends_with("zsh")) { return; }
+    let dir = std::env::temp_dir().join("own-terminal-zsh");
+    if std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(".zshenv"), ZSH_HOOK)).is_err() { return; }
+    opts.env.insert("OWN_ZDOTDIR".into(), std::env::var("ZDOTDIR").unwrap_or_default());
+    opts.env.insert("ZDOTDIR".into(), dir.to_string_lossy().into_owned());
+}
+
+fn last_block<T>(term: &Term<T>) -> Option<String> {
+    let g = term.grid();
+        let cols = g.columns();
+    let mut id: Option<String> = None;
+    let mut rows: Vec<(String, bool)> = vec![]; // newest first: (text, soft-wrapped into next row)
+    let mut blanks: Vec<(String, bool)> = vec![];
+    for l in (g.topmost_line().0..=g.bottommost_line().0).rev() {
+        let row = &g[Line(l)];
+        let mut tag = None;
+        let mut s = String::new();
+        for c in 0..cols {
+            let cell = &row[Column(c)];
+            if let Some(h) = cell.hyperlink().filter(|h| h.uri() == "own:block") { tag = Some(h.id().to_string()); }
+            if !cell.flags.contains(Flags::WIDE_CHAR_SPACER) { s.push(cell.c); }
+        }
+        let wrapped = row[Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+        match (tag, &id) {
+            (Some(t), Some(i)) if t != *i => break, // previous command's block
+            (Some(t), _) => {
+                id = Some(t);
+                rows.append(&mut blanks);
+                rows.push((s, wrapped));
+            }
+            (None, Some(_)) if !s.trim().is_empty() => break, // prompt/command line above the block
+            (None, Some(_)) => blanks.push((s, wrapped)),
+            (None, None) => {}
+        }
+    }
+    if rows.is_empty() { return None; }
+    let mut out = String::new();
+    for (s, wrapped) in rows.iter().rev() {
+        if *wrapped { out.push_str(s); } else { out.push_str(s.trim_end()); out.push('\n'); }
+    }
+    Some(out.trim_end().to_string())
+}
+
 // Bridges one tab's terminal events to egui (repaint/title/exit) and back to its pty (query replies).
 #[derive(Clone)]
 pub struct Proxy {
@@ -137,6 +196,7 @@ impl Pane {
             opts.working_directory = home_dir();
         }
         tty::setup_env();
+        zsh_block_hook(&mut opts);
         let size = WindowSize { num_cols: cols as u16, num_lines: rows as u16, cell_width: 1, cell_height: 1 };
         let pty = tty::new(&opts, size, 0)?;
         #[cfg(unix)]
@@ -153,6 +213,11 @@ impl Pane {
             busy_since: None, matches: vec![], match_len: 0, match_idx: 0, mouse_btn: None, mouse_cell: (0, 0),
         })
     }
+
+    /// Output of the newest command (running or finished): the run of cells the shell hook tagged with
+    /// an `own:block` hyperlink. Blank lines inside the output carry no tag, so they are kept only when
+    /// more tagged output of the same block lies above them.
+    pub fn last_output(&self) -> Option<String> { last_block(&self.term.lock()) }
 
     /// The shell's current directory (the idle foreground group leader is the shell itself).
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
@@ -411,6 +476,25 @@ impl Pane {
                 }
                 None => {}
             }
+        }
+
+        // Right-click menu (when the program is not capturing the mouse). Paste arrives as Event::Paste next frame.
+        if !mouse {
+            resp.context_menu(|ui| {
+                let sel = term.selection_to_string();
+                if ui.add_enabled(sel.is_some(), egui::Button::new("Copy")).clicked() {
+                    if let Some(s) = sel { ui.ctx().copy_text(s); }
+                    ui.close();
+                }
+                if ui.button("Paste").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                    ui.close();
+                }
+                if ui.button("Copy last output").clicked() {
+                    if let Some(s) = last_block(&term) { ui.ctx().copy_text(s); }
+                    ui.close();
+                }
+            });
         }
 
         let mut hits: HashMap<(i32, usize), bool> = HashMap::new(); // cell -> is the current match
@@ -694,6 +778,21 @@ mod tests {
         assert!(until(&|| fg() != shell), "sleep should take the foreground");
         assert!(until(&|| fg() == shell), "shell should be foreground again");
         std::mem::forget(pty); // Pty::drop waits on the child; irrelevant for the test
+    }
+}
+
+#[cfg(test)]
+mod block_tests {
+    use super::*;
+    use alacritty_terminal::vte::ansi::Processor;
+    #[derive(Clone)] struct L;
+    impl EventListener for L {}
+    #[test]
+    fn copies_only_last_command() {
+        let mut t = Term::new(Config::default(), &Size { cols: 20, rows: 10 }, L);
+        let mut p: Processor = Processor::new();
+        p.advance(&mut t, b"$ one\r\n\x1b]8;id=1;own:block\x07A\r\nB\r\n\r\nC\r\n\x1b]8;;\x07$ two\r\n\x1b]8;id=2;own:block\x07X\r\nY\r\n\x1b]8;;\x07$ ");
+        assert_eq!(last_block(&t).unwrap(), "X\nY");
     }
 }
 

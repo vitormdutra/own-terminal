@@ -102,6 +102,8 @@ On macOS the app shortcuts use `Cmd`. On Linux and Windows, replace `Cmd` with `
 | Move focus between panes | `Cmd+Option+←↑↓→` (the neighbour in that direction), or `Cmd+]` / `Cmd+[` (next / previous), or click |
 | Maximize / restore pane | `Cmd+Shift+Enter` |
 | Clear terminal (like `clear`) | `Cmd+K` |
+| Copy last command's output | `Cmd+J` (zsh only; over SSH see below) |
+| Copy / Paste menu | Right click (not when the program captures the mouse) |
 | Search scrollback | `Cmd+F`; `Enter` = previous (older) match, `Shift+Enter` = next, `Esc` closes |
 | Select text | Drag; double click = word; triple click = line; click to clear |
 | Copy | `Cmd+C` (Linux/Windows: `Ctrl+C` *with a selection*; with no selection it interrupts the program as usual) |
@@ -227,3 +229,22 @@ Built on [alacritty_terminal](https://github.com/alacritty/alacritty) and
 ## License
 
 [MIT](LICENSE)
+
+## Copy last output over SSH
+
+`Cmd+J` finds the last command through a hook injected into the local zsh. Inside `ssh` the whole session is one command, so install the same hook on the server (`~/.zshrc` or `~/.bashrc`):
+
+```zsh
+# zsh
+autoload -Uz add-zsh-hook
+_own_pre()  { printf '\e]8;id=%s_%s;own:block\a' $$ $((++_own_n)) }
+_own_post() { printf '\e]8;;\a' }
+add-zsh-hook preexec _own_pre
+add-zsh-hook precmd _own_post
+```
+
+```bash
+# bash 4.4+
+_own_post() { printf '\e]8;;\a'; PS0=$'\e]8;id='$$'_'$((++_own_n))$';own:block\a'; }
+PROMPT_COMMAND="_own_post${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+```
